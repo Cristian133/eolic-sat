@@ -2,8 +2,10 @@
 #[macro_use]
 extern crate rocket;
 
+use rocket::http::Method;
 use rocket::response::content;
 use rocket_cors;
+use rocket_cors::{AllowedHeaders, AllowedOrigins, CorsOptions};
 use sgp4;
 use ureq;
 
@@ -11,6 +13,20 @@ use ureq;
 fn json() -> content::Json<&'static str> {
     content::Json("{'hi':'world'}")
 }
+
+// #[get("/")]
+// fn get_handler<'a>() -> Response<'a> {
+//     let mut res = Response::new();
+//     res.set_status(Status::new(200, "No Content"));
+//     res.adjoin_header(ContentType::Plain);
+//     res.adjoin_raw_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+//     res.adjoin_raw_header("Access-Control-Allow-Origin", "*");
+
+//     res.adjoin_raw_header("Access-Control-Allow-Credentials", "true");
+//     res.adjoin_raw_header("Access-Control-Allow-Headers", "Content-Type");
+//     res.set_sized_body(Cursor::new("Response"));
+//     res
+// }
 
 // All GP queries on CelesTrak will take the form:
 
@@ -62,6 +78,7 @@ fn group(group: String) -> content::Json<String> {
         .query("FORMAT", "json")
         .call();
     let r = response.into_string().unwrap();
+
     content::Json(r)
 }
 
@@ -75,41 +92,85 @@ fn name(name: String) -> content::Json<String> {
     content::Json(r)
 }
 
-fn main() {
-    let options = rocket_cors::CorsOptions::default();
+/*#[get("/posvel/<group>")]*/
+//fn posvel(group: String) -> content::Json<String> {
+    //let response = ureq::get("https://celestrak.com/NORAD/elements/gp.php")
+        //.query("GROUP", &group)
+        //.query("FORMAT", "json")
+        //.call();
+    //// if response.error() {
+    ////     Err(sgp4::Error::new(format!(
+    ////         "network error {}: {}",
+    ////         response.status(),
+    ////         response.into_string()?
+    ////     )))
+    //// } else {
+        //let elements_group: Vec<sgp4::Elements> = response.into_string().unwrap();
+        //let mut str_json = vec!["[ ".to_owned()];
+        //for elements in &elements_group {
+            //println!("{}", elements.object_name.as_ref().unwrap());
+            //let constants = sgp4::Constants::from_elements(elements)?;
+            //for hours in &[0] {
+                //str_json.push(
+                    //"{ \"Name of Satellite\": \"".to_owned()
+                        //+ &elements.object_name.as_ref().unwrap()
+                        //+ &"\", ".to_owned(),
+                //);
+                //let prediction = constants.propagate((hours * 60) as f64)?;
+                //let minutos = (hours * 60).to_string();
+                //let x = prediction.position[0];
+                //let y = prediction.position[1];
+                //let z = prediction.position[2];
+                //let vx = prediction.velocity[0];
+                //let vy = prediction.velocity[1];
+                //let vz = prediction.velocity[2];
+                //println!("    t = {} min", &minutos);
+                //println!("        r = {:?} km", prediction.position);
+                //println!("        ṙ = {:?} km.s⁻¹", prediction.velocity);
+                //str_json.push("\"tm\": \"".to_owned() + &minutos + &"\", ".to_owned());
+                //str_json.push("\"x\": \"".to_owned() + &x.to_string() + &"\", ".to_owned());
+                //str_json.push("\"y\": \"".to_owned() + &y.to_string() + &"\", ".to_owned());
+                //str_json.push("\"z\": \"".to_owned() + &z.to_string() + &"\", ".to_owned());
+                //str_json.push("\"vx\": \"".to_owned() + &vx.to_string() + &"\", ".to_owned());
+                //str_json.push("\"vy\": \"".to_owned() + &vy.to_string() + &"\", ".to_owned());
+                //str_json.push("\"vz\": \"".to_owned() + &vz.to_string() + &"\"},".to_owned());
+            //}
+        //}
+        //str_json.push("]".to_owned());
+        //content::Json(str_json)
+    ////}
+//}
 
-    rocket::ignite()
-        .mount("/", routes![json, catnr, intdes, group, name, tlepv])
-        .manage(options)
-        .launch();
+fn cors_options() -> CorsOptions {
+    let allowed_origins = AllowedOrigins::All;
+    let allowed_methods = vec![Method::Get, Method::Post]
+        .into_iter()
+        .map(From::from)
+        .collect();
+    let allowed_headers = AllowedHeaders::All;
+    let expose_headers = ["Content-Type", "X-Custom", "application/json"]
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+
+    rocket_cors::CorsOptions {
+        allowed_origins,
+        allowed_methods,
+        allowed_headers,
+        allow_credentials: false,
+        expose_headers,
+        max_age: Some(42),
+        send_wildcard: true,
+        fairing_route_base: "/cors".to_string(),
+        fairing_route_rank: 0,
+    }
 }
 
-#[get("/tlepv")]
-fn tlepv() -> sgp4::Result<()> {
-    let response = ureq::get("https://celestrak.com/NORAD/elements/gp.php")
-        .query("GROUP", "stations")
-        .query("FORMAT", "json")
-        .call();
-    if response.error() {
-        Err(sgp4::Error::new(format!(
-            "network error {}: {}",
-            response.status(),
-            response.into_string()?
-        )))
-    } else {
-        let elements_group: Vec<sgp4::Elements> = response.into_json_deserialize()?;
-        for elements in &elements_group {
-            println!("{}", elements.object_name.as_ref().unwrap());
-            let constants = sgp4::Constants::from_elements(elements)?;
-            for hours in &[12, 24] {
-                println!("    t = {} min", hours * 60);
-                let prediction = constants.propagate((hours * 60) as f64)?;
-                println!("        r = {:?} km", prediction.position);
-                println!("        ṙ = {:?} km.s⁻¹", prediction.velocity);
-            }
-        }
-        Ok(())
-    }
+fn main() {
+    rocket::ignite()
+        .mount("/", routes![json, catnr, intdes, group, name])
+        .attach(cors_options().to_cors().expect("To not fail"))
+        .launch();
 }
 
 // #[get("/tle/<name>")]
@@ -250,4 +311,3 @@ fn tlepv() -> sgp4::Result<()> {
 //     // Ok(body)
 //     Ok(joined)
 // }
-
